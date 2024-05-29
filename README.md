@@ -12,6 +12,7 @@ cif的时间戳对齐采用peak（通关方式）得到，这里我们直接尝�
 以10s窗长进行音频切块，下面展示alpha-token 的对齐效果：
 ![本地图片](./img/img2.png "ALPHA")
 
+![本地图片](./img/img3.png "ALPHA2")
 用户可以修改main.py 参数进行试验
 ### 3. alpha VAD
     开发中
