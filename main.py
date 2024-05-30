@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import matplotlib
 zhfont1 = matplotlib.font_manager.FontProperties(fname="./SourceHanSansSC-Bold.otf")
 
-
 class SeacoParaformerPlus(SeacoParaformer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -36,6 +35,7 @@ class SeacoParaformerPlus(SeacoParaformer):
         bias_embed = bias_embed[_ind, hotwords_length.tolist()]
         bias_embed = np.expand_dims(bias_embed, axis=0)
 
+        # onnx推理
         waveform_nums = len(waveform_list)
         content = []
         id = 0
@@ -69,9 +69,10 @@ class SeacoParaformerPlus(SeacoParaformer):
         peak = asr_res['peak']
 
         # alpha 对齐
-        max_val,max_path = maxSumSubarrayWithGaps(alpha,tokens_n,3)
+        max_score,max_path = maxSumSubarrayWithGaps(alpha,tokens_n,3)
         AX,AY = [],[]
-        for ft,i,score in max_path:
+        for ft,i in max_path:
+            ft -= 1
             AX.append(ft*self.SECONDS_PER_FRAME+stime)
             AY.append(alpha[ft])
 
@@ -127,60 +128,67 @@ def read_audio_file(url):
         return audio_data
 
 # 动态规划实现alpha-token强制对齐
-def maxSumSubarrayWithGaps(NUMS,K,G):
-    N = len(NUMS)
+def maxSumSubarrayWithGaps(nums,k,gap):
+    nums_ = list(nums.copy())
+    nums_.insert(0,0)
+    N = len(nums_)
+
     # 初始化表单
-    dp = [[-float('inf') for j in range(K+1)] for _ in range(N)]
-    path = [[[] for j in range(K+1)] for _ in range(N)]
+    dp = [[0 for j in range(k+1)] for _ in range(N)]
+    path = [[[] for j in range(k+1)] for _ in range(N)]
     # 初始化边界
     for i in range(N): # dp[:,0]
         dp[i][0] = 0
         path[i][0] = []
-    for j in range(K+1): # dp[0,:]
+    for j in range(k+1): # dp[0,:]
+        dp[0][j] = 0
+        path[0][j] = []
+    # 定义t = 1
+    for j in range(k+1): # dp[1,:]
         if j==0:
-            dp[0][j] = 0
+            dp[1][j] = 0
+            path[1][j] = []
         elif j==1:
-            dp[0][j] = NUMS[0]
-        else: 
-            dp[0][j] = -float('inf')
+            dp[1][j] = nums_[j]
+            path[1][j] = []
+        else:
+            dp[1][j] = 0
+            path[1][j] = []
 
-    # dp填表
-    for i in range(1,N):
-        for j in range(1,K+1):
-            # 不满足GAP
-            if (j-1)*G+1>i+1:
-                dp[i][j] = -float('inf')
-                path[i][j] = []
-            # 满足间隔
-            else:
-                for k in range(j-1,i-G+1):
-                    # 更新最大值切区间内满足极差(停顿)要求
-                    if dp[k][j-1]+NUMS[i]>dp[i][j] and max(NUMS[k:i+1])-min(NUMS[k+1:i])>0.02:
-                        dp[i][j] = dp[k][j-1]+NUMS[i]
-                        path[i][j] = [k,j-1,dp[k][j-1]]
+    for j in range(1,k+1):
+        for i in range(2,N):
+            context = (j-1)*gap+1 # 保证content所需帧数
+            if i>=context:
+                if dp[i-1][j]>=dp[i-gap][j-1]+nums_[i]:
+                    dp[i][j] = dp[i-1][j]
+                    path[i][j] = path[i-1][j]
+                else:
+                    dp[i][j] = dp[i-gap][j-1]+nums_[i]
+                    path[i][j] = [(i-gap,j-1),(i,j)]
+
+    # for i,p in enumerate(dp):
+    #     print(f"{i}|",p)
+    # print()
+    # for i,p in enumerate(path):
+    #     print(f"{i}|",p)
+        
     # 回溯
-    max_i = np.argmax([dp[i][K] for i in range(N)])
-    max_val = dp[max_i][K]
+    max_score = dp[-1][-1]
     max_path = []
-    i,j,v = max_i,K,max_val
-    max_path.append([i,j,v])
-    while 1:
-        if not path[i][j]:break
-        i,j,v = path[i][j]
-        if j>0:
-            max_path.append([i,j,v])
-        if j==1:break
+    a,b = -1,-1
+    while path[a][b]:
+        link,res = path[a][b]
+        max_path.append(res)
+        a,b = link
     max_path.reverse()
-    return max_val,max_path
-
+    return max_score,max_path
 
 if __name__ == '__main__':
 
-    import sys 
     SR = 16000
 
     # 参数
-    url = "test.wav"
+    url = "/home/nvidia/funasr_alpha_token_alignment/funasr_models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/example/asr_example.wav"
     img_dir = 'alpha_align_plot'
     chunk_seconds = 10
     cache_dir='./funasr_models'
@@ -215,6 +223,7 @@ if __name__ == '__main__':
         text = asr_res['tokens']
         print(id,text)
         paraformer.align_with_alpha(asr_res,img_path=f"{img_dir}/{id}.png")
+        print("saved into:",f"{img_dir}/{id}.png")
 
 
      
